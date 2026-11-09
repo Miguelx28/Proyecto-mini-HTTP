@@ -10,5 +10,5 @@ Servidor TCP que acepta conexiones y responde "hola".
 ## Ejecutar
     ./minihttpd 8080
 
-## Probarg
+## Probar
     curl http://localhost:8080/
