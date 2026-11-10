@@ -7,8 +7,9 @@
 #include "server.h"
 
 #define PORT 8080
+#define TAM_BUFF 8092 
 
-// respuesta fija, solo para probar la fase 1 
+// respuesta fija, solo para probar
 const char *response =
     "HTTP/1.1 200 OK\r\n"
     "Content-Type: text/plain\r\n"
@@ -22,7 +23,7 @@ int main(int argc, char *argv[])
     int port = PORT;
     int server, client;
     char buf[4096];
-    int n;
+    int n, total, complete;
 
     if (argc > 1)
         port = atoi(argv[1]);
@@ -39,13 +40,28 @@ int main(int argc, char *argv[])
             perror("accept");
             continue;
         }
-        printf("Cliente conectado\n");
-        // leer lo que mando el cliente (por ahora no se usa) 
-        n = read(client, buf, sizeof(buf));
-        if (n > 0) {
-            send(client, response, strlen(response), 0);
+        //leer hasta encontrar fin encabezados
+        total = 0;
+        complete = 0;
+        while(total < TAM_BUFF){
+            n =  read(client, buf+total,TAM_BUFF-total);
+            if(n <= 0){
+                break;
+            }
+            total += n;
+            buf[total] = '\0';
+            if(strstr(buf, "\r\n\r\n") != NULL){
+                complete = 1;
+                break;
+            }
         }
-
+        if(complete){
+            send(client, response, strlen(response), 0);
+        }else if(total >= TAM_BUFF){
+            //todo: errores
+        }else{
+            printf("Cliente cerrado sin terminar la solicitud ");
+        }
         close(client);
     }
     return 0;
