@@ -5,6 +5,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "server.h"
+#include "http.h"
+
 
 #define PORT 8080
 #define TAM_BUFF 8092 
@@ -22,8 +24,9 @@ int main(int argc, char *argv[])
 {
     int port = PORT;
     int server, client;
-    char buf[4096];
+    char buff[TAM_BUFF + 1];
     int n, total, complete;
+    struct  request_line request;
 
     if (argc > 1)
         port = atoi(argv[1]);
@@ -44,19 +47,28 @@ int main(int argc, char *argv[])
         total = 0;
         complete = 0;
         while(total < TAM_BUFF){
-            n =  read(client, buf+total,TAM_BUFF-total);
+            n =  read(client, buff+total,TAM_BUFF-total);
             if(n <= 0){
                 break;
             }
             total += n;
-            buf[total] = '\0';
-            if(strstr(buf, "\r\n\r\n") != NULL){
+            buff[total] = '\0';
+            if(strstr(buff, "\r\n\r\n") != NULL){
                 complete = 1;
                 break;
             }
         }
         if(complete){
-            send(client, response, strlen(response), 0);
+            //parsear la primera linea de la peticion
+            if(parse_request_line(buff, &request) ==0){
+                printf("Metodo: %s\n", request.method);
+                printf("URI: %s\n", request.uri);
+                printf("Version: %s\n", request.version); 
+            }else {
+                printf("error linea dde solicitud\n");
+            }
+            //enviar respuesta
+            write(client, response, strlen(response));
         }else if(total >= TAM_BUFF){
             //todo: errores
         }else{
