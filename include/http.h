@@ -13,4 +13,7 @@ struct request_line {
 //separar la primera linea y llenar la estructura 
 int parse_request_line(const char *line, struct request_line *request);
 
+//Armar respuesta HHTP completa
+int build_response(int code, char *out, int max);
+
 #endif

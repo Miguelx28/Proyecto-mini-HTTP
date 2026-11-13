@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include "http.h"
 
 //copiar largo bytes de origen a destino, si caben
@@ -8,6 +9,54 @@ static int copy(char *dest, int size, const char *src, int large) {
         dest[large] = '\0';
     }
     return 0;
+}
+
+
+int build_response(int code, char *out, int max){
+    const char *reason;
+    const char *extra = "";
+    char body[64];
+    int body_length, n;
+
+    switch(code) {
+        case 200:
+            reason = "OK";
+            break;
+        case 400:
+            reason = "Bad Request";
+            break;
+        case  403:
+            reason = "Forbidden";
+            break;
+        case 404:
+            reason = "Not Found";
+            break;
+            case 405:
+            reason = "Method Not Allowed";
+            break;
+        default:
+            reason = "Internal Server Error";
+            break;
+    }
+    if (code == 200){
+        body_length = snprintf(body, sizeof(body), "hola\n");
+    }else{
+        body_length = snprintf(body, sizeof(body),"%d %s\n", code, reason);
+    }
+
+    n = snprintf(out, max, "HTTP/1.1 %d %s\r\n"
+        "Content-type: text/plain\r\n"
+        "Content-length: %d\r\n"
+        "%s"
+        "Conection: close\r\n"
+        "\r\n"
+        "%s",
+        code, reason, body_length, extra, body);
+    
+    if (n <0 || n >= max){
+        return -1;
+    }
+    return n;
 }
 
 int parse_request_line(const char *line, struct request_line *request){

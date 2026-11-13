@@ -9,16 +9,9 @@
 
 
 #define PORT 8080
-#define TAM_BUFF 8092 
+#define TAM_BUFF 8192 
 
-// respuesta fija, solo para probar
-const char *response =
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: text/plain\r\n"
-    "Content-Length: 5\r\n"
-    "Connection: close\r\n"
-    "\r\n"
-    "hola\n";
+
 
 int main(int argc, char *argv[])
 {
@@ -27,6 +20,8 @@ int main(int argc, char *argv[])
     char buff[TAM_BUFF + 1];
     int n, total, complete;
     struct  request_line request;
+    char response[1024];
+    int code, len;
 
     if (argc > 1)
         port = atoi(argv[1]);
@@ -64,15 +59,28 @@ int main(int argc, char *argv[])
                 printf("Metodo: %s\n", request.method);
                 printf("URI: %s\n", request.uri);
                 printf("Version: %s\n", request.version); 
+                code = 200;
             }else {
                 printf("error linea dde solicitud\n");
+                code = 400;
             }
             //enviar respuesta
-            write(client, response, strlen(response));
+            //write(client, response, strlen(response));
         }else if(total >= TAM_BUFF){
-            //todo: errores
+            printf("Solicitud demasiado grande\n");
+            code = 400;
         }else{
+            //cliente cerrado sin terminar la solicitud
             printf("Cliente cerrado sin terminar la solicitud ");
+            close(client);
+            continue;
+        }
+
+        //armar respuesta
+        len = build_response(code, response, sizeof(response));
+        printf("code=%d len=%d\n", code, len);
+        if(len > 0){
+            write(client, response, len);
         }
         close(client);
     }
