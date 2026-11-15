@@ -35,6 +35,7 @@ int build_response(int code, char *out, int max){
             reason = "Method Not Allowed";
             break;
         default:
+            code = 500;
             reason = "Internal Server Error";
             break;
     }
@@ -98,5 +99,94 @@ int parse_request_line(const char *line, struct request_line *request){
     if(copy(request->version, sizeof(request->version), version, end_line - version) < 0) {
         return -1;
     }
+    return 0;
+}
+
+int check_request_line(const struct request_line *request){
+    if(strcmp(request->version, "HTTP/1.1") != 0 && strcmp(request->version, "HTTP/1.0") != 0) {
+        return 400;
+    }
+
+    //metodo vacio es 4000
+    if(request->method[0] == '\n') {
+        return 400;
+    }
+    if(strcmp(request->method, "GET") != 0){
+        return 405;
+    }
+
+    //URI debe empezar con /
+    if(request->uri[0] != '/') {
+        return 400;
+    }
+
+    return 200;
+
+}
+
+int parse_headers(const char *text, struct header *headers){
+    const char *p;
+    const char *end;
+    const char *colon;
+    const char *value;
+    const char *end_value;
+    int name_length, value_length;
+
+    memset(headers, 0, sizeof(*headers));
+
+    //los encabezados empiezan luego de la linea de solicitud
+    p = strstr(text, "\r\n");
+    if(p == NULL) {
+        return -1;
+    }
+    p += 2; //saltar \r\n
+
+
+    while(1){
+        //cada encabezado termina en \r\n
+        end = strstr(p, "\r\n");
+        if(end == NULL) {
+            return -1;
+        }
+
+        //linea vacia indica fin de encabezados
+        if(end == p) {
+            break;
+        }
+
+        //separar nombre y valor por los dos puntos
+        colon = memchr(p, ':', end - p);
+        if(colon == NULL) {
+            return -1;
+        }
+        name_length = colon - p;
+
+        //quitar espacios vacios
+        value = colon + 1;
+        while(value < end && (*value == ' ' || *value == '\t')) {
+            value++;
+        }
+        end_value = end;
+        while(end_value > value && (*(end_value - 1) == ' ' || *(end_value - 1) == '\t')) {
+            end_value--;
+        }
+        value_length = end_value - value;
+
+        //copiar nombre y valor a la estructura
+        if(name_length == 4 && strncasecmp(p, "Host", 4) == 0) {
+            if(copy(headers->host, sizeof(headers->host), value, value_length) < 0) {
+                return -1;
+            }
+        } else if(name_length == 10 && strncasecmp(p, "Connection", 10) == 0) {
+            if(copy(headers->connection, sizeof(headers->connection), value, value_length) < 0) {
+                return -1;
+            }
+        } else if(name_length == 10 && strncasecmp(p, "User-Agent", 10) == 0) {
+            if(copy(headers->user_agent, sizeof(headers->user_agent), value, value_length) < 0) {
+                return -1;
+            }
+        }
+        p = end + 2; 
+    }   
     return 0;
 }
