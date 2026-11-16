@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdio.h>
+#include <strings.h>
 #include "http.h"
 
 //copiar largo bytes de origen a destino, si caben
@@ -37,6 +38,7 @@ int build_response(int code, char *out, int max){
         default:
             code = 500;
             reason = "Internal Server Error";
+            extra = "Allow: GET\r\n";
             break;
     }
     if (code == 200){
@@ -189,4 +191,21 @@ int parse_headers(const char *text, struct header *headers){
         p = end + 2; 
     }   
     return 0;
+}
+
+int build_file_header(const char *mime, long length, char *out, int max){
+    int n;
+
+    n = snprintf(out, max, 
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: %s\r\n"
+        "Content-Length: %ld\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        mime, length);
+        
+    if (n < 0 || n >= max) {
+        return -1;
+    }
+    return n;
 }

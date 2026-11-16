@@ -3,6 +3,8 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "files.h"
 
 //ruta real de los documentos
@@ -97,4 +99,29 @@ int resolve_path(const char *uri, char *out, int size){
 
     return 200;
 
+}
+
+int open_file(const char *path, int *fd, long *size){
+    struct stat info;
+    int f;
+
+    f = open(path, O_RDONLY);
+    if(f < 0){
+        if(errno == EACCES){
+            return 403;
+        }
+        if(errno == ENOENT){
+            return 404;
+        }
+        return 500;
+    }
+
+    if(fstat(f, &info) < 0 || !S_ISREG(info.st_mode)){
+        close(f);
+        return 500;
+    }
+
+    *fd = f;
+    *size = info.st_size;
+    return 200;
 }

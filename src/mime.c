@@ -9,11 +9,11 @@ struct mime_entry{
 };
 
 static const struct mime_entry table[] = {
-    { "html", "text/html" },
-    { "css", "text/css" },
-    { "js", "application/javascript" },
-    { "png", "image/png" },
-    { "jpg", "image/jpeg" }
+    { ".html", "text/html" },
+    { ".css", "text/css" },
+    { ".js", "application/javascript" },
+    { ".png", "image/png" },
+    { ".jpg", "image/jpeg" }
 };
 
 const char *get_mime_type(const char *path) {

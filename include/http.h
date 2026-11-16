@@ -29,4 +29,7 @@ int build_response(int code, char *out, int max);
 //recorer encabezados
 int parse_headers(const char *text, struct header *headers);
 
+//arma solo el encabezado de una respuesta que lleva un archivo
+int build_file_header(const char *mime, long length, char *out, int max);
+
 #endif
