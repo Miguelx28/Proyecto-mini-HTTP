@@ -28,7 +28,7 @@ const char *get_mime_type(const char *path) {
     if (slash == NULL) {
         name = path;
     } else {
-        name = path;
+        name = slash + 1 ;
     }
     
     //la extension del archivo

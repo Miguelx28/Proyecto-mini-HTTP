@@ -1,5 +1,5 @@
 #ifndef FILES_H
-#define FILES_
+#define FILES_H
 
 //tamaño max ruta
 #define MAX_PATH 4096

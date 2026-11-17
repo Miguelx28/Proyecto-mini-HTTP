@@ -1,16 +1,36 @@
+#include <fcntl.h>
 #include <stdio.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <stdlib.h>
+#include <sys/socket.h>
+#include <sys/sendfile.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <strings.h>
 #include "server.h"
 #include "http.h"
-#include "files.h"
 #include "mime.h"
+#include "files.h"
 
 #define TAM_BUFF 8192
+
+static struct client clients[MAX_CLIENTS];
+
+struct client *client_add(int fd){
+    struct client *c;
+    
+    if(fd < 0 || fd >= MAX_CLIENTS){
+        return NULL;
+    }
+
+    c = &clients[fd];
+    memset(c, 0, sizeof(struct client));
+    c->fd = fd;
+    c-> file_fd = -1;
+    c->state = CLIENT_READING;
+    return c;
+}
 
 int set_nonblocking(int fd){
     int flags;
@@ -26,6 +46,19 @@ int set_nonblocking(int fd){
     return 0;
 }
 
+int set_blocking(int fd){
+    int flags;
+
+    //leer las banderas actuales y quitar O_NONBLOCK
+    flags = fcntl(fd, F_GETFL, 0);
+    if(flags < 0){
+        return -1;
+    }
+    if(fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) < 0){
+        return -1;
+    }
+    return 0;
+}
 
 int create_server(int port){
     int fd;
@@ -71,114 +104,146 @@ int create_server(int port){
     return fd;
 }  
 
-//escribir los "len" bytes completos
-static int write_all(int fd, const char *data, int len){
-    int sent = 0;
-    int n;
-
-    while(sent < len){
-        n = write(fd, data + sent, len - sent);
-        if(n <= 0){
-            return -1;
-        }
-        sent += n;
-    }
-    return 0;
-}
-
-//leer el archivo por bloques y enviarlo al cliente
-static void send_file(int client, int file_fd){
-    char chunk[TAM_BUFF];
-    int n;
-    while((n = read(file_fd, chunk, sizeof(chunk))) > 0){
-        if(write_all(client, chunk, n) < 0){
-            break;
-        }
-    }
-}
-
-void handle_client(int client){
-    char buff[TAM_BUFF + 1];
-    char response[1024];
-    struct request_line request;
-    struct header headers;
-    char file_path[MAX_PATH];
-    int file_fd = -1;
-    long file_size = 0;
-    int n, total, complete, code, len;
-
-    //leer la solicitud completa
-    total = 0;
-    complete = 0;
-    while(total < TAM_BUFF){
-        n =  read(client, buff+total,TAM_BUFF-total);
-        if(n <= 0){
-            break;
-        }
-        total += n;
-        buff[total] = '\0';
-        if(strstr(buff, "\r\n\r\n") != NULL){
-            complete = 1;
-            break;
-        }
-    }
-    if(complete){
-        //parsear la primera linea de la peticion
-        if(parse_request_line(buff, &request) ==0){
-            printf("Metodo: %s\n", request.method);
-            printf("URI: %s\n", request.uri);
-            printf("Version: %s\n", request.version); 
-            code = check_request_line(&request);    
-            if(code != 200){
-                printf("Solicitud invalida\n");
-            } else if(parse_headers(buff, &headers) == 0){
-                printf("Host : %s\n", headers.host);
-                printf("Connection : %s\n", headers.connection);
-                printf("User-Agent : %s\n", headers.user_agent);
-                code = resolve_path(request.uri, file_path, sizeof(file_path));
-                if (code == 200){
-                    printf("Archivo a servir: %s (%s)\n", file_path, get_mime_type(file_path));
-                    //abrir archivo y tomar su tamaño
-                    code = open_file(file_path, &file_fd, &file_size);
-                    if(code != 200){
-                        printf("Error al abrir archivo: %d\n", code);
-                    }
-                }else{
-                    printf("Ruta rechazada con %d\n", code);
-                }
-            } else {
-                printf("Error al parsear encabezados\n");
-                code = 400;
-            }
-        }else {
-            printf("error linea de solicitud\n");
-            code = 400;
-        }
-        //enviar respuesta
-        //write(client, response, strlen(response));
-    }else if(total >= TAM_BUFF){
-        printf("Solicitud demasiado grande\n");
-        code = 400;
-    }else{
-        //cliente cerrado sin terminar la solicitud
-        printf("Cliente cerrado sin terminar la solicitud ");
-        close(client);
+void client_remove(struct client *c){
+    if(c->state == CLIENT_FREE){
         return;
     }
-    if(code == 200 && file_fd >= 0){
-        //encabezado con tipo y tamaño
-        len = build_file_header(get_mime_type(file_path), file_size, response, sizeof(response));
-        if(len > 0 && write_all(client, response, len) == 0){
-            send_file(client, file_fd);
-        }
-        close(file_fd);
-    }else {
-        //respuesta de error con el codigo que corresponde
-        len = build_response(code, response, sizeof(response));
-        if(len > 0){
-            write_all(client, response, len);
-        }    
+    if(c->file_fd >= 0){
+        close(c->file_fd);
     }
-    close(client);
+    close(c->fd);
+    c->file_fd = -1;
+    c->fd = -1;
+    c->state = CLIENT_FREE;
+}
+
+void client_reset(struct client *c){
+    if(c->file_fd >= 0){
+        close(c->file_fd);
+    }
+    c->file_fd = -1;
+    c->in_len = 0;
+    c->in[0] = '\0';
+    c->out_len = 0;
+    c->out_sent = 0;
+    c->file_size = 0;
+    c->file_sent = 0;
+    c->keep_alive = 0;
+    c->state = CLIENT_READING;
+}
+
+//validar la solicitud y buscar el archivo
+static int process_request(struct client *c){
+    struct request request;
+    char path[MAX_PATH];
+    char host[256];
+    char agent[512];
+    int code;
+    char conn[64];
+
+    code = parse_request(c->in, &request);
+    if(code != 200){
+        return code;
+    }
+
+    //encabezados
+    host[0] = '\0';
+    agent[0] = '\0';
+    get_header(c->in, "Host", host, sizeof(host));
+    get_header(c->in, "User-Agent", agent, sizeof(agent));
+    printf("Host: %s\n", host);
+    printf("User-Agent: %s\n", agent);
+
+    //
+    c->keep_alive = 1;
+    if(get_header(c->in, "Connection", conn, sizeof(conn)) == 0 && strcasecmp(conn, "close") ==0){
+        c->keep_alive = 0;
+    }
+
+    code = resolve_path(request.uri, path, sizeof(path));
+    if(code != 200){
+        return code;
+    }
+
+    c->mime = get_mime_type(path);
+    return open_file(path, &c->file_fd, &c->file_size);
+}
+
+int handle_client(struct client *c){    
+    off_t offset = 0;
+    ssize_t n;
+    int code;
+
+    //leer la solicitud del cliente
+    if (c->state == CLIENT_READING){               
+            while(c->in_len < TAM_BUFF && strstr(c->in, "\r\n\r\n") == NULL){
+                n = read(c->fd, c->in + c->in_len, TAM_BUFF - c->in_len);
+                if(n > 0){
+                    c->in_len += n;
+                    c->in[c->in_len] = '\0';
+                    continue;
+                }
+                if(n < 0 && errno == EINTR){
+                    continue;
+                }
+                if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)){
+                    return 0;
+                }
+                return -1;
+            }
+        
+        //solicitud demaciada grande
+        if(strstr(c->in, "\r\n\r\n") == NULL){
+            code = 400;
+        }else{
+            code = process_request(c);
+        }
+        if(code == 200){
+            c->out_len = build_file_header(c->mime, c->file_size, c->keep_alive, c->out, sizeof(c->out));
+        }else{
+            c->out_len = build_response(code, c->keep_alive, c->out, sizeof(c->out));
+        }
+
+        if (c->out_len <= 0){
+            return -1;
+        }
+        c->state = CLIENT_WRITING;
+    }
+
+    //enviar encavezado
+    while(c->out_sent < c->out_len){
+        n = write(c->fd, c->out + c->out_sent, c->out_len - c->out_sent);
+        if(n > 0){
+            c->out_sent += n;
+            continue;
+        }
+        if(n < 0 && errno == EINTR){
+            continue;
+        }
+        if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)){
+            return 2;
+        }
+        return -1;
+    }
+
+    //contenido del archivo
+    if(c->file_fd >= 0) {
+        while(c->file_sent < c->file_size){
+            offset = c->file_sent;
+            n = sendfile(c->fd, c->file_fd, &offset, c->file_size - c->file_sent);
+            if(n > 0){
+                c->file_sent += n;
+                continue;
+            }
+            if(n < 0 && errno == EINTR){
+                continue;
+            }
+            if(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)){
+                return 2;
+            }
+            return -1;
+        }
+    }
+    return 1;
 }    
 

@@ -1,35 +1,26 @@
-#ifndef HHTP_h
-#define HHTP_h
+#ifndef HHTP_H
+#define HHTP_H
 
 #define MAX_URI 1024
+#define MAX_LINE 2048
 
 //tres partes  de la linea de la peticion
-struct request_line {
+struct request {
     char method[16];
-    char uri[MAX_URI];
+    char uri[MAX_URI+1];
     char version[16];
 };
 
-//encabezados
-struct header {
-    char host[256];
-    char connection[32];
-    char user_agent[512];
-};
+//Analixar y validar la linea de solicitud
+int parse_request(const char *text, struct request *request);
 
-//separar la primera linea y llenar la estructura 
-int parse_request_line(const char *line, struct request_line *request);
-
-//revisar que la solicitud sea valida
-int check_request_line(const struct request_line *request);
+//buscar el encabezado
+int get_header(const char *text, const char *name, char *out, int size);
 
 //Armar respuesta HHTP completa
-int build_response(int code, char *out, int max);
-
-//recorer encabezados
-int parse_headers(const char *text, struct header *headers);
+int build_response(int code, int keep_alive, char *out, int max);
 
 //arma solo el encabezado de una respuesta que lleva un archivo
-int build_file_header(const char *mime, long length, char *out, int max);
+int build_file_header(const char *mime, long length,int keep_alive, char *out, int max);
 
 #endif
