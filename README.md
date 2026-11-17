@@ -1,67 +1,70 @@
 # MiniHTTPd
-Servidor HTTP1.1 básico en C, sin librerias externas.
 
-El servidor escucha 
+Servidor HTTP/1.1 básico en C para Linux, sin bibliotecas HTTP externas.
+Sirve archivos estáticos y atiende varios clientes a la vez con `epoll`.
 
+## Qué hace
 
+- Atiende solo el método `GET` (cualquier otro método responde 405).
+- Lee los encabezados `Host`, `Connection` y `User-Agent`; los demás se ignoran.
+- Usa conexiones persistentes: la conexión se mantiene abierta, salvo que el cliente mande `Connection: close`.
+- Atiende varios clientes con `epoll` y sockets no bloqueantes. Si un cliente lento no puede recibir todo de una vez, el servidor guarda cuánto ha enviado y sigue cuando `epoll` avisa (`EPOLLOUT`), sin bloquear a los demás.
+- Devuelve el tipo MIME según la extensión del archivo.
 
-El servidor escucha en un puerto TCP y acepta coneciones de una en una.
-Por cada cliente:
+## Códigos de estado
 
-1. Lee la solicitud completa. Como TCP entrega un flujo de bytes, va acumulando datos en un buffer de 8192 bytes hasta encontrar '\r\n\r\n', como fin de encabezado.
-2. Separa la primera línea en método, URI y version.
-3. Valida la linea y decide el código de estado:
-    * 200 OK
-    * 405 Method Not Allowed
-    * 400 Bad Request
-4. Recorre los en encabezados y guarda Host, Connection y User, los demas encabezados se ignoran.
-5. Busca el archivo pedido dentro de la raiz de documentos
-6. Arma la respuesta HTTP completa
-7. Cierra la conección.
- 
-Las copias de texto se hacen comprobando el tamaño antes de copiar, sin
-`strcpy` ni `sprintf`, para evitar desbordamientos de buffer.
+| Código | Cuándo |
+|--------|--------|
+| 200 OK | El archivo existe y se envía |
+| 400 Bad Request | Solicitud mal formada, versión distinta de HTTP/1.1 o solicitud demasiado grande |
+| 403 Forbidden | Sin permiso o ruta fuera de la raíz |
+| 404 Not Found | El archivo no existe |
+| 405 Method Not Allowed | Método distinto de GET |
+| 500 Internal Server Error | Error interno |
+
+## Tipos MIME
+
+`.html`, `.css`, `.js`, `.png` y `.jpg`. Cualquier otra extensión se envía como `application/octet-stream`.
+
+## Seguridad
+
+- **Directory traversal:** la ruta pedida se resuelve con `realpath()` y se verifica que quede dentro de la raíz (`/../../etc/passwd` no funciona).
+- **Buffer overflow:** no se usa `strcpy` ni `sprintf`; se usan `snprintf` y copias con el tamaño comprobado.
+- **Tamaños:** la solicitud se limita a 8192 bytes, la línea de solicitud a 2048 y la URI a 1024. Si se pasan, responde 400.
 
 ## Archivos
-- `src/main.c`: programa principal y bucle de `accept()`
-- `src/server.c`: crea el socket (`socket`, `bind`, `listen`)
-- `src/files.c`: fija y consulta la raiz de documentos
-- `src/mime.c`: tabla de extensiones y tipos MIME 
-- `src/mime.c`: tabla de  extensiones y tipos MIME
-- `src/http.c`: separa la línea de solicitus, lee los encabezados y arma las respuestas
-- `include/server.h` y `include/http.h` e `include/mime.h`, e `include/files.h` e ` include/mime.h`: declaraciones
+
+- `src/main.c`: programa principal y bucle de `epoll`
+- `src/server.c`: socket, tabla de clientes y atención de cada cliente
+- `src/http.c`: análisis de la solicitud, encabezados y respuestas
+- `src/files.c`: raíz de documentos, resolución de rutas y apertura de archivos
+- `src/mime.c`: tabla de tipos MIME
+- `include/`: archivos de cabecera (`server.h`, `http.h`, `files.h`, `mime.h`)
+- `www/`: contenido de ejemplo (`index.html`, `style.css`, `image.png`)
 - `Makefile`: compilación
 
 ## Compilar
+
     make
 
 ## Ejecutar
-    ./minihttpd 8080
-    ./minihttpd 8080 www
 
-El puerto es opcional y la raiz tambien se ejecuta(8080, www) por defecto. 
- 
+    ./minihttpd              # puerto 8080, raíz "www"
+    ./minihttpd 8080 www     # puerto y raíz explícitos
+
 ## Probar
- 
-    curl -v http://localhost:8080/index.html
- 
-Respuesta:
- 
-    HTTP/1.1 200 OK
-    Content-Type: text/plain
-    Content-Length: 5
-    Connection: close
- 
-    hola
- 
+
+    curl -i http://localhost:8080/index.html          # 200
+    curl -i http://localhost:8080/noexiste.html       # 404
+    curl -i -X POST http://localhost:8080/index.html  # 405
+    curl -i --path-as-is http://localhost:8080/../../etc/passwd   # no sale de la raíz
+    printf "HOLA\r\n\r\n" | nc localhost 8080         # 400
+
+Conexión persistente (dos archivos por la misma conexión):
+
+    curl -v http://localhost:8080/index.html http://localhost:8080/style.css
 
 
-Solicitud mal formada:
- 
-    printf "HOLA\r\n\r\n" | nc localhost 8080
- 
-Respuesta: `HTTP/1.1 400 Bad Request`
- 
 ## Limpiar
- 
+
     make clean
